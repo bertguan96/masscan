@@ -16,7 +16,7 @@ func TestNewScanner(t *testing.T) {
 		WithRoot(),
 		WithBinaryPath(path+"/bin/masscan"),
 		WithPort("1-65535"),
-		WithOutputJson("scanRes.json"),
+		WithOutputJson(),
 		WithRetryTime(3),
 		WithRate(40000),
 		WithRandomizeHosts(),
