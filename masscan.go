@@ -106,7 +106,7 @@ func WithBinaryPath(path string) Option {
 // WithRate 设置访问频率
 func WithRate(rate int) Option {
 	return func(s *Scanner) {
-		rate := fmt.Sprintf("--rate %d", rate)
+		rate := fmt.Sprintf("--rate=%d", rate)
 		s.args = append(s.args, rate)
 	}
 }
