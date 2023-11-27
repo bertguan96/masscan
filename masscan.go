@@ -60,7 +60,8 @@ func (scanner *Scanner) Run() (err error) {
 	} else {
 		cmd = exec.Command(scanner.binaryPath, scanner.args...)
 	}
-
+	path, _ := os.Getwd()
+	cmd.Dir = path // 绑定当前路径
 	log.Printf("exec cmd: %s\n", cmd.String())
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -74,20 +75,22 @@ func (scanner *Scanner) Run() (err error) {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	go io.Copy(os.Stdout, stdout)
-	go io.Copy(os.Stderr, stderr)
+
+	stdOutput, err := io.ReadAll(stdout)
+	if err != nil {
+		return err
+	}
+	stdErr, err := io.ReadAll(stderr)
+	if err != nil {
+		return err
+	}
 
 	if err := cmd.Wait(); err != nil {
 		return err
 	}
 
-	// 关闭输出流
-	if err := stdout.Close(); err != nil {
-		return err
-	}
-	if err := stderr.Close(); err != nil {
-		return err
-	}
+	log.Printf("output: %s", stdOutput)
+	log.Printf("err: %s", stdErr)
 	log.Printf("scan finish, cost: %ss\n", time.Since(start))
 	return
 }
@@ -127,10 +130,10 @@ func WithRandomizeHosts() Option {
 }
 
 // WithOutputJson 输出为JSON
-func WithOutputJson(fileName string) Option {
+func WithOutputJson() Option {
 	return func(s *Scanner) {
-		// s.args = append(s.args, fmt.Sprintf("-oJ=%s", fileName))
-		s.args = append(s.args, fmt.Sprintf("--output-format json --output-filename %s", fileName))
+		s.args = append(s.args, "-oJ")
+		s.args = append(s.args, "-")
 	}
 }
 
@@ -152,4 +155,22 @@ func WithRoot() Option {
 	return func(s *Scanner) {
 		s.rootRuntime = true
 	}
+}
+
+// AddOptions sets more scan options after the scan is created.
+func (s *Scanner) AddOptions(options ...Option) *Scanner {
+	for _, option := range options {
+		option(s)
+	}
+	return s
+}
+
+// Args return the list of nmap args.
+func (s *Scanner) Args() []string {
+	return s.args
+}
+
+// AddArgs return the list of nmap args.
+func (s *Scanner) AddArgs(val string) {
+	s.args = append(s.args, val)
 }
