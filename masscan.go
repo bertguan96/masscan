@@ -129,7 +129,8 @@ func WithRandomizeHosts() Option {
 // WithOutputJson 输出为JSON
 func WithOutputJson(fileName string) Option {
 	return func(s *Scanner) {
-		s.args = append(s.args, fmt.Sprintf("-oJ %s", fileName))
+		// s.args = append(s.args, fmt.Sprintf("-oJ=%s", fileName))
+		s.args = append(s.args, fmt.Sprintf("--output-format json --output-filename %s", fileName))
 	}
 }
 
