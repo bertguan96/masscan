@@ -10,7 +10,7 @@
 
 ## 2.使用方式
 
-```json
+```golang
 	scanner, err := NewScanner(
 		WithRoot(),                      // 设置是否是root权限
 		WithBinaryPath("./bin/masscan"), // 设置执行的bin路径
