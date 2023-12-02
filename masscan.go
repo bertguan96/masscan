@@ -1,14 +1,14 @@
 package masscan
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
+	"strings"
 )
 
 // ScanRunner represents something that can run a scan.
@@ -21,18 +21,17 @@ type Scanner struct {
 	binaryPath  string          // 二进制文件位置
 	ctx         context.Context // 上下文
 	rootRuntime bool            // root模式运行
+	pid         int             // os.getpid()
 }
 
 type Option func(*Scanner)
 
 // NewScanner creates a new Scanner, and can take options to apply to the scanner.
-func NewScanner(ctx context.Context, options ...Option) (*Scanner, error) {
-	scanner := &Scanner{
-		ctx: ctx,
-	}
+func NewScanner(options ...Option) (*Scanner, error) {
+	scanner := &Scanner{}
 
 	if len(options) == 0 {
-		return nil, ErrMasscanNotInstalled
+		return nil, OptionsIsNull
 	}
 
 	for _, option := range options {
@@ -43,16 +42,23 @@ func NewScanner(ctx context.Context, options ...Option) (*Scanner, error) {
 		var err error
 		scanner.binaryPath, err = exec.LookPath("bin/masscan")
 		if err != nil {
-			return nil, OptionsIsNull
+			return nil, ErrMasscanNotInstalled
 		}
+	}
+
+	if scanner.ctx == nil {
+		scanner.ctx = context.Background()
 	}
 
 	return scanner, nil
 }
 
-func (scanner *Scanner) Run() (err error) {
-	start := time.Now()
-	var cmd *exec.Cmd
+func (scanner *Scanner) Run() (result *MasscanResult, warnings []string, err error) {
+	var (
+		cmd    *exec.Cmd
+		stdout bytes.Buffer
+		stderr bytes.Buffer
+	)
 	if scanner.rootRuntime {
 		execPath := []string{scanner.binaryPath}
 		execPath = append(execPath, scanner.args...)
@@ -63,36 +69,43 @@ func (scanner *Scanner) Run() (err error) {
 	path, _ := os.Getwd()
 	cmd.Dir = path // 绑定当前路径
 	log.Printf("exec cmd: %s\n", cmd.String())
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
-		return err
+		return nil, warnings, err
 	}
 
-	stdOutput, err := io.ReadAll(stdout)
-	if err != nil {
-		return err
-	}
-	stdErr, err := io.ReadAll(stderr)
-	if err != nil {
-		return err
-	}
+	scanner.pid = cmd.Process.Pid
 
-	if err := cmd.Wait(); err != nil {
-		return err
-	}
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
 
-	log.Printf("output: %s", stdOutput)
-	log.Printf("err: %s", stdErr)
-	log.Printf("scan finish, cost: %ss\n", time.Since(start))
-	return
+	select {
+	case <-scanner.ctx.Done():
+
+		_ = cmd.Process.Kill()
+
+		return nil, warnings, ErrScanTimeout
+	case <-done:
+
+		if stderr.Len() > 0 {
+			warnings = strings.Split(strings.Trim(stderr.String(), "\n"), "\n")
+		}
+
+		if stdout.Len() > 0 {
+			result, err := ParseScanResult(stdout.Bytes())
+			if err != nil {
+				warnings = append(warnings, err.Error())
+				return nil, warnings, ErrParseOutput
+			}
+			return result, warnings, err
+		}
+
+	}
+	return nil, nil, nil
 }
 
 // WithBinaryPath 设置二进制文件地址
@@ -158,19 +171,19 @@ func WithRoot() Option {
 }
 
 // AddOptions sets more scan options after the scan is created.
-func (s *Scanner) AddOptions(options ...Option) *Scanner {
+func (scanner *Scanner) AddOptions(options ...Option) *Scanner {
 	for _, option := range options {
-		option(s)
+		option(scanner)
 	}
-	return s
+	return scanner
 }
 
 // Args return the list of nmap args.
-func (s *Scanner) Args() []string {
-	return s.args
+func (scanner *Scanner) Args() []string {
+	return scanner.args
 }
 
 // AddArgs return the list of nmap args.
-func (s *Scanner) AddArgs(val string) {
-	s.args = append(s.args, val)
+func (scanner *Scanner) AddArgs(val string) {
+	scanner.args = append(scanner.args, val)
 }
